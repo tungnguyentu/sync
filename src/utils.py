@@ -56,10 +56,9 @@ def get_html_snippet(text):
 
 def synchronous_retry(
     delay=1,
-    retries=3,
+    retries=10,
     exceptions=Exception,
-    logger=None,
-    callback_on_retry=List[Tuple[Type[Exception], Callable]],
+    logger=None
 ):
     if not logger:
         logger = logging.getLogger(__name__)
@@ -79,10 +78,6 @@ def synchronous_retry(
                     logger.warning(message)
                     attempt += 1
                     time.sleep(delay)
-                    if callback_on_retry:
-                        for exception, callback in callback_on_retry:
-                            if isinstance(e, exception):
-                                callback()
             return f(*args, **kwargs)
 
         return f_retry
@@ -107,9 +102,10 @@ def calculate_pages(email, password, folder_name, page_len=2):
 
 
 @synchronous_retry()
-def get_events(publisher, pages, email, password, folder_name, page_len=2):
+def get_events(pages, email, password, folder_name, page_len=2):
     criteria = 'ALL'
-    for page in range(pages):
+    results = []
+    for page in pages:
         with MailBox(host).login(email, password) as imap:
             imap.folder.set(folder_name)
             page_limit = slice(page * page_len, page * page_len + page_len)
@@ -129,4 +125,5 @@ def get_events(publisher, pages, email, password, folder_name, page_len=2):
                 for key, value in msg.headers.items():
                     if key.lower() == "message-id":
                         message_append.msgid,  = value
-                publisher.publish(event_type="MessageAppend", key=email, payload=asdict(message_append))
+                results.append(message_append)
+    return results

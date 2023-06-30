@@ -81,10 +81,7 @@ class KafkaPublisher(PublisherInterface):
 
         @synchronous_retry(
             retries=self._retries,
-            delay=self._delay,
-            callback_on_retry=[
-                (kafka_client.errors.KafkaError, self.connect_publisher)
-            ],
+            delay=self._delay
         )
         def _publish():
             self._logger.info("Publishing message: %s", message)

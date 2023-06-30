@@ -2,7 +2,7 @@ import src.utils as utils
 import ssl
 from src.publisher import KafkaPublisher
 from config import *
-
+from dataclasses import asdict
 
 def main():
     context = None
@@ -21,8 +21,9 @@ def main():
     )
     publisher.connect_publisher()
     accounts = {}
-    folders = []
+    folders = ["INBOX"]
     for email, password in accounts.items():
+        print(email)
         for folder in folders:
             pages = utils.calculate_pages(
                 email=email,
@@ -30,7 +31,13 @@ def main():
                 folder_name=folder,
                 page_len=50
             )
-            utils.get_events(publisher, pages, email, password, folder, page_len=50)
+            pages = list(range(pages))
+            for i in range(0, len(pages), 1):
+                events = utils.get_events(pages[i: i + 1], email, password, folder, page_len=50)
+                for event in events:
+                    publisher.publish(event_type="MessageAppend", key=email, payload=asdict(event))
+            break
+        break
 
 if __name__ == "__main__":
     main()
