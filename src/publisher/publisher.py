@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 import kafka as kafka_client
 
 from src.publisher.base import PublisherInterface
-from src.utils import datetime_json_serial, synchronous_retry
+from src.utils import asynchronous_retry, datetime_json_serial, synchronous_retry
 
 
 class KafkaPublisher(PublisherInterface):
@@ -69,29 +69,25 @@ class KafkaPublisher(PublisherInterface):
             self._logger.exception("Could not initialize publisher: %s", e)
             raise e
 
-    def publish(
-        self, event_type: str, payload: Dict[str, Any], key: Optional[str] = ""
-    ):
+    async def publish(self, event_type: str, payload: Dict[str, Any], key: Optional[str] = ""):
         issued_at = datetime.now(tz=timezone.utc)
-        message = dict(
+        msg = dict(
             event_type=event_type or "",
             payload=payload or {},
             issued_at=issued_at,
         )
 
-        @synchronous_retry(
+        @asynchronous_retry(
             retries=self._retries,
             delay=self._delay
         )
-        def _publish():
-            self._logger.info("Publishing message: %s", message)
-            self._publisher.send(
-                topic=self._topic, key=bytes(key, "utf-8"), value=message
-            )
+        async def _publish():
+            self._logger.info("Publishing message: %s to topic: %s", msg, self._topic)
+            self._publisher.send(topic=self._topic, key=bytes(key, "utf-8"), value=msg)
             self._publisher.flush()
 
         try:
-            return _publish()
+            return await _publish()
         except Exception as e:
-            self._logger.exception("Send message failed - %s - %s", message, e)
+            self._logger.exception("Send message failed - %s - %s", msg, e)
             raise e

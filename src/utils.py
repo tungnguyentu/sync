@@ -1,13 +1,19 @@
+import asyncio
+import logging
+import time
+from dataclasses import dataclass
+from datetime import date, datetime
+from functools import wraps
+from typing import List, Optional
+
+import requests
 from bs4 import BeautifulSoup
 from imap_tools import MailBox
-from typing import List, Optional
-from dataclasses import dataclass, asdict
-from config import host
-from datetime import date, datetime
-import time
-from functools import wraps
-from typing import Callable, List, Tuple, Type
-import logging
+
+from config import *
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class MessageAppend:
@@ -73,7 +79,7 @@ def synchronous_retry(
                 except exceptions as e:
                     message = (
                         "Retry exception thrown when attempting to run {}, "
-                        "attempt {} of {}".format(f, attempt, retries)
+                        "attempt {} of {} error: {}".format(f, attempt, retries, e)
                     )
                     logger.warning(message)
                     attempt += 1
@@ -89,7 +95,7 @@ def datetime_json_serial(obj):
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
 
-
+@synchronous_retry(delay=2, retries=1000)
 def calculate_pages(email, password, folder_name, page_len=2):
     with MailBox(host).login(email, password) as imap:
         criteria = 'ALL'
@@ -101,7 +107,7 @@ def calculate_pages(email, password, folder_name, page_len=2):
         return pages
 
 
-@synchronous_retry()
+@synchronous_retry(delay=2, retries=1000)
 def get_events(pages, email, password, folder_name, page_len=2):
     criteria = 'ALL'
     results = []
@@ -118,7 +124,7 @@ def get_events(pages, email, password, folder_name, page_len=2):
                     user=email,
                     mailbox=folder_name,
                     uids=[int(msg.uid)],
-                    sender=msg.from_values.email,
+                    sender=email,
                     to=format_addresses(msg.to_values),
                     snippet=snippet
                 )
@@ -126,4 +132,39 @@ def get_events(pages, email, password, folder_name, page_len=2):
                     if key.lower() == "message-id":
                         message_append.msgid,  = value
                 results.append(message_append)
+    print(len(results))
     return results
+
+
+def asynchronous_retry(delay=1, retries=3, exceptions=Exception, logger=None):
+    if not logger:
+        logger = logging.getLogger(__name__)
+
+    def retry_decorator(f):
+        @wraps(f)
+        async def f_retry(*args, **kwargs):
+            attempt = 0
+            while attempt < retries:
+                try:
+                    return await f(*args, **kwargs)
+                except exceptions:
+                    message = "Retry exception thrown when attempting to run {}, " "attempt {} of {}".format(
+                        f, attempt, retries
+                    )
+                    logger.warning(message)
+                    attempt += 1
+                    await asyncio.sleep(delay)
+            return await f(*args, **kwargs)
+
+        return f_retry
+
+    return retry_decorator
+
+def send_to_telegram(message):
+    apiToken = tele_api_token
+    chatID = tele_chat_id
+    apiURL = f'https://api.telegram.org/bot{apiToken}/sendMessage'
+    try:
+        requests.post(apiURL, json={'chat_id': chatID, 'text': message})
+    except Exception as e:
+        logger.error(e)
