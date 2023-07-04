@@ -12,26 +12,34 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 
+async def process_folder(publisher: KafkaPublisher, email: str, password: str, folder: str):
+    logging.info(f"Processing folder: {folder}, user: {email}")
+    pages = utils.calculate_pages(
+        email=email,
+        password=password,
+        folder_name=folder,
+        page_len=200
+    )
+    pages = list(range(pages))
+    for i in range(0, len(pages), 2):
+        percent = (len(pages[i: i + 2]) / len(pages)) * 100
+        if percent % 10 == 0:
+            utils.send_to_telegram(f"email: {email}, folder: {folder}, percent: {percent}")
+        events = utils.get_events(pages[i: i + 2], email, password, folder, page_len=200)
+        for event in events:
+            await publisher.publish(event_type="MessageAppend", key=email, payload=asdict(event))
+
+
 async def process_account(publisher: KafkaPublisher, email: str, password: str, folders: List[str], ratio):
     utils.send_to_telegram(f"email: {email}, ratio: {ratio}")
+    tasks = []
     for folder in folders:
         if folder == "WEBMAIL_SCHEDULED":
             continue
-        logging.info(f"Processing folder: {folder}, user: {email}")
-        pages = utils.calculate_pages(
-            email=email,
-            password=password,
-            folder_name=folder,
-            page_len=200
-        )
-        pages = list(range(pages))
-        for i in range(0, len(pages), 2):
-            percent = ((len(pages[i: i + 2]) + 1) / len(pages)) * 100
-            if percent % 10 == 0:
-                utils.send_to_telegram(f"email: {email}, folder: {folder}, percent: {percent}")
-            events = utils.get_events(pages[i: i + 2], email, password, folder, page_len=200)
-            for event in events:
-                await publisher.publish(event_type="MessageAppend", key=email, payload=asdict(event))
+        task = asyncio.create_task(process_folder(publisher, email, password, folder), name=folder)
+        logging.info(f"FOLDER: {folder}")
+        tasks.append(task)
+    await asyncio.gather(*tasks)
 
 
 async def main(publisher: KafkaPublisher):
@@ -45,6 +53,7 @@ async def main(publisher: KafkaPublisher):
             password = info["password"]
             folders = info["folders"]
             task = asyncio.create_task(process_account(publisher, email, password, folders, ratio), name=email)
+            logging.info(f"USER: {email}")
             tasks.append(task)
         await asyncio.gather(*tasks)
 

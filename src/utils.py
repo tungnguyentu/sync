@@ -99,7 +99,11 @@ def datetime_json_serial(obj):
 def calculate_pages(email, password, folder_name, page_len=2):
     with MailBox(host).login(email, password) as imap:
         criteria = 'ALL'
-        imap.folder.set(folder_name)
+        try:
+            imap.folder.set(folder_name)
+        except Exception as e:
+            logger.info(str(e))
+            return 0
         found_nums = imap.numbers(criteria)
         pages = int(len(found_nums) // page_len) + \
                 1 if len(found_nums) % page_len else int(
@@ -116,6 +120,7 @@ def get_events(pages, email, password, folder_name, page_len=2):
             imap.folder.set(folder_name)
             page_limit = slice(page * page_len, page * page_len + page_len)
             for msg in imap.fetch(criteria, bulk=True, limit=page_limit, mark_seen=False, charset='UTF-8'):
+                snippet = ""
                 if msg.html:
                     snippet = get_html_snippet(msg.html)
                 elif msg.text:
@@ -130,9 +135,13 @@ def get_events(pages, email, password, folder_name, page_len=2):
                 )
                 for key, value in msg.headers.items():
                     if key.lower() == "message-id":
-                        message_append.msgid,  = value
+                        try:
+                            msg_id, = value
+                            message_append.msgid = msg_id.strip()
+                        except Exception as e:
+                            logger.error(str(e))
+                            message_append.msgid = ""
                 results.append(message_append)
-    print(len(results))
     return results
 
 
